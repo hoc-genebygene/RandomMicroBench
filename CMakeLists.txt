@@ -4,3 +4,5 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(ComparisonStructures comparison_structures.cpp)
+
+add_executable(StdAsyncThreadCreation std_async_thread_creation.cpp)
