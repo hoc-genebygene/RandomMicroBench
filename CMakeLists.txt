@@ -6,3 +6,5 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(ComparisonStructures comparison_structures.cpp)
 
 add_executable(StdAsyncThreadCreation std_async_thread_creation.cpp)
+
+add_executable(StdVectorCapacityResize std_vector_capacity_resize.cpp)
