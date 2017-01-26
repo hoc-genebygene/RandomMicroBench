@@ -6,6 +6,11 @@
 #include <mutex>
 #include <cstring>
 
+#include <stdio.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+
 #include "zlib.h"
 
 namespace {
@@ -14,16 +19,52 @@ namespace {
 
 class BamReader {
 public:
-    BamReader(const std::string & filename) {
+    BamReader(const std::string & filename, const std::string & mode): mode_(mode) {
+        if (mode_ == "use_ifstream") {
+            read_file_ifstream(filename);
+        }
+        else {
+            read_file_mmap(filename.c_str());
+        }
+    }
+
+    ~BamReader() {
+        if (mode_ == "use_ifstream") {
+            delete(buffer_);
+        }
+        else {
+            munmap(buffer_, file_size_);
+        }
+    }
+
+    void read_file_mmap(const char * filename) {
+        int fd = open(filename, O_RDONLY);
+        struct stat sb;
+        fstat(fd, &sb);
+
+        file_size_ = sb.st_size;
+        std::cout << "File size: " << file_size_ << std::endl;
+
+        buffer_ = (char *)mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+        close(fd);
+        if (buffer_ == MAP_FAILED) {
+            throw std::runtime_error("mmap failed!");
+        }
+
+        block_begin_index_ = 0;
+    }
+
+    void read_file_ifstream(const std::string & filename) {
         std::ifstream read_stream(filename, std::ios::binary | std::ios::ate);
 
         file_size_ = read_stream.tellg();
         std::cout << "File size: " << file_size_ << std::endl;
         read_stream.seekg(0, std::ios::beg);
 
-        buffer_.resize(file_size_);
+        buffer_ = new char[file_size_];
+
         auto start = std::chrono::steady_clock::now();
-        if (!read_stream.read(buffer_.data(), file_size_)) {
+        if (!read_stream.read(buffer_, file_size_)) {
             throw std::runtime_error("Error reading file into buffer!");
         }
         read_stream.close();
@@ -32,20 +73,24 @@ public:
         double time = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count() / 1000000000.0;
         std::cout << "ifstream read file at " << file_size_compressed_MB / time << " compressed MB/s" << std::endl;
 
-        block_begin_it_ = buffer_.cbegin();
+        block_begin_index_ = 0;
     }
 
-    std::pair<std::vector<char>::const_iterator, uint32_t> getNextBlock() {
+    std::pair<uint64_t, uint32_t> getNextBlock() {
         std::lock_guard<std::mutex> lock(next_block_mutex_);
-        if (block_begin_it_ == buffer_.cend())
-            return { buffer_.cend(), 0 };
+        if (block_begin_index_ == file_size_)
+            return { file_size_, 0 };
 
         uint16_t length = 0;
-        std::memcpy(&length, &*(block_begin_it_+16), sizeof(length));
+        std::memcpy(&length, buffer_+block_begin_index_+16, sizeof(length));
         length+=1;
-        auto ret = std::pair<std::vector<char>::const_iterator, uint32_t>(block_begin_it_, length);
-        block_begin_it_ += length;
+        auto ret = std::pair<uint64_t, uint32_t>(block_begin_index_, length);
+        block_begin_index_ += length;
         return ret;
+    }
+
+    char * getBuffer() {
+        return buffer_;
     }
 
     uint64_t getFileSize() {
@@ -53,21 +98,23 @@ public:
     }
 
 private:
-    std::vector<char> buffer_;
+    char * buffer_;
 
     std::mutex next_block_mutex_;
-    std::vector<char>::const_iterator block_begin_it_;
+    uint64_t block_begin_index_;
 
     uint64_t file_size_;
+
+    std::string mode_;
 };
 
 int main(int argc, char * argv[]) {
-    if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " /path/to/bam/file num_threads" << std::endl;
+    if (argc < 3) {
+        std::cerr << "Usage: " << argv[0] << " /path/to/bam/file num_threads [use_ifstream]" << std::endl;
         return -1;
     }
 
-    BamReader reader(argv[1]);
+    BamReader reader(argv[1], argc == 3 ? "" : argv[3]);
     const int NUM_THREADS = std::stoi(argv[2]);
 
     auto deflateProc = [&reader]() {
@@ -85,18 +132,19 @@ int main(int argc, char * argv[]) {
             if (block.second == 0)
                 return;
 
-            std::vector<char>::const_iterator block_begin_it = block.first;
+            const uint64_t block_begin_index = block.first;
             const uint32_t length = block.second;
+            const char * buffer = reader.getBuffer();
 
-            if (*block_begin_it != (char)31 || *(block_begin_it+1) != (char)139) {
+            if (buffer[block_begin_index] != (char)31 || buffer[block_begin_index+1] != (char)139) {
                 throw std::runtime_error("BgzfBlock header magic bytes don't match! Corrupt file?");
             }
 
             uint32_t uncompressed_size = 0;
-            std::memcpy(&uncompressed_size, &*(block_begin_it+length-4), sizeof(uncompressed_size));
+            std::memcpy(&uncompressed_size, buffer+block_begin_index+length-4, sizeof(uncompressed_size));
 
 
-            zs.next_in = (Bytef *)&*(block_begin_it+18);
+            zs.next_in = (Bytef *)buffer+block_begin_index+18;
             zs.avail_in = length - 16;
 
             std::vector<char> uncompressed_data(MAX_BLOCK_SIZE);
