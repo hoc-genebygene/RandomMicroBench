@@ -11,6 +11,9 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 
+#include "boost/iostreams/device/mapped_file.hpp"
+
+
 #include "zlib.h"
 
 namespace {
@@ -22,6 +25,8 @@ public:
     BamReader(const std::string & filename, const std::string & mode): mode_(mode) {
         if (mode_ == "use_ifstream") {
             read_file_ifstream(filename);
+        } else if (mode_ == "use_boost_mmap") {
+            read_file_boost_mmap(filename);
         }
         else {
             read_file_mmap(filename.c_str());
@@ -35,6 +40,17 @@ public:
         else {
             munmap(buffer_, file_size_);
         }
+    }
+
+    void read_file_boost_mmap(const std::string & filename) {
+        try {
+            file.open(filename);
+        } catch (std::ios::failure & e) {
+            throw;
+        }
+
+        file_size_ = file.size();
+        buffer_ = (char *)file.data();
     }
 
     void read_file_mmap(const char * filename) {
@@ -99,6 +115,8 @@ public:
 
 private:
     char * buffer_;
+
+    boost::iostreams::mapped_file_source file;
 
     std::mutex next_block_mutex_;
     uint64_t block_begin_index_;

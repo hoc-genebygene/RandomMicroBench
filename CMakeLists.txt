@@ -6,7 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
-
+find_package(Boost REQUIRED COMPONENTS iostreams)
+INCLUDE_DIRECTORIES( ${Boost_INCLUDE_DIR} )
 
 link_directories(${CMAKE_SOURCE_DIR})
 
@@ -30,7 +31,7 @@ add_executable(FileIOBenchmark file_io_benchmark.cpp)
 add_executable(MemCpyStackOverflow memcpy_stackoverflow.cpp)
 
 add_executable(ZlibInflateBenchmark zlib_inflate_benchmark.cpp)
-target_link_libraries(ZlibInflateBenchmark ${ZLIB_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(ZlibInflateBenchmark ${ZLIB_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${Boost_LIBRARIES})
 
 
 
