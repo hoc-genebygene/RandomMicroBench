@@ -9,8 +9,6 @@
 #include "zlib.h"
 
 namespace {
-    const std::string BAM_FILE_PATH = "/Users/hocheung20/genome_data/aengine/aengine.150x.bam";
-    const unsigned int NUM_THREADS = 8;
     const unsigned int MAX_BLOCK_SIZE = 65536;
 }
 
@@ -63,8 +61,14 @@ private:
     uint64_t file_size_;
 };
 
-int main() {
-    BamReader reader(BAM_FILE_PATH);
+int main(int argc, char * argv[]) {
+    if (argc != 3) {
+        std::cerr << "Usage: " << argv[0] << " /path/to/bam/file num_threads" << std::endl;
+        return -1;
+    }
+
+    BamReader reader(argv[1]);
+    const int NUM_THREADS = std::stoi(argv[2]);
 
     auto deflateProc = [&reader]() {
         z_stream zs;
