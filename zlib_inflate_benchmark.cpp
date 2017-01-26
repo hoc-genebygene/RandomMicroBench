@@ -28,6 +28,7 @@ public:
         if (!read_stream.read(buffer_.data(), file_size_)) {
             throw std::runtime_error("Error reading file into buffer!");
         }
+        read_stream.close();
         auto stop = std::chrono::steady_clock::now();
         double file_size_compressed_MB = file_size_ / (1024 * 1024.0);
         double time = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count() / 1000000000.0;
