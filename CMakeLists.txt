@@ -23,6 +23,7 @@ if(APPLE)
 elseif (UNIX)
 	target_link_libraries(MemCpyBenchmark libaelf64.a)
 endif()
+target_link_libraries(MemCpyBenchmark ${CMAKE_THREAD_LIBS_INIT})
 
 add_executable(FileIOBenchmark file_io_benchmark.cpp)
 
