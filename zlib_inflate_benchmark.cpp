@@ -43,6 +43,8 @@ public:
     }
 
     void read_file_boost_mmap(const std::string & filename) {
+        std::cout << "Using boost::mapped_file_source" << std::endl;
+
         try {
             file.open(filename);
         } catch (std::ios::failure & e) {
@@ -51,9 +53,13 @@ public:
 
         file_size_ = file.size();
         buffer_ = (char *)file.data();
+
+        block_begin_index_ = 0;
     }
 
     void read_file_mmap(const char * filename) {
+        std::cout << "Using POSIX mmap" << std::endl;
+
         int fd = open(filename, O_RDONLY);
         struct stat sb;
         fstat(fd, &sb);
@@ -71,6 +77,7 @@ public:
     }
 
     void read_file_ifstream(const std::string & filename) {
+        std::cout << "Using ifstream" << std::endl;
         std::ifstream read_stream(filename, std::ios::binary | std::ios::ate);
 
         file_size_ = read_stream.tellg();
