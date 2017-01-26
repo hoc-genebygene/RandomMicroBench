@@ -3,6 +3,8 @@
 #include <exception>
 #include <vector>
 #include <thread>
+#include <mutex>
+#include <cstring>
 
 #include "zlib.h"
 
@@ -22,9 +24,14 @@ public:
         read_stream.seekg(0, std::ios::beg);
 
         buffer_.resize(file_size_);
+        auto start = std::chrono::steady_clock::now();
         if (!read_stream.read(buffer_.data(), file_size_)) {
             throw std::runtime_error("Error reading file into buffer!");
         }
+        auto stop = std::chrono::steady_clock::now();
+        double file_size_compressed_MB = file_size_ / (1024 * 1024.0);
+        double time = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count() / 1000000000.0;
+        std::cout << "ifstream read file at " << file_size_compressed_MB / time << " compressed MB/s" << std::endl;
 
         block_begin_it_ = buffer_.cbegin();
     }
