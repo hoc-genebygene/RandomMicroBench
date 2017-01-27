@@ -22,22 +22,24 @@ namespace {
 
 class BamReader {
 public:
-    BamReader(const std::string & filename, const std::string & mode): mode_(mode) {
+    BamReader(const std::string & filename, const std::string & mode): mode_(mode), block_begin_index_(0) {
         if (mode_ == "use_ifstream") {
             read_file_ifstream(filename);
         } else if (mode_ == "use_boost_mmap") {
             read_file_boost_mmap(filename);
-        }
-        else {
-            read_file_mmap(filename.c_str());
+        } else if (mode == "use_mmap") {
+            read_file_mmap(filename);
+        } else if (mode == "use_fread") {
+            read_file_fread(filename);
+        } else {
+            throw std::runtime_error("Invalid reader type!");
         }
     }
 
     ~BamReader() {
-        if (mode_ == "use_ifstream") {
+        if (mode_ == "use_ifstream" || mode_ == "use_fread") {
             delete(buffer_);
-        }
-        else {
+        } else if (mode_ == "use_mmap") {
             munmap(buffer_, file_size_);
         }
     }
@@ -53,11 +55,10 @@ public:
 
         file_size_ = file.size();
         buffer_ = (char *)file.data();
-
-        block_begin_index_ = 0;
     }
 
-    void read_file_mmap(const char * filename) {
+    void read_file_mmap(const std::string & filename_str) {
+        const char * filename = filename_str.c_str();
         std::cout << "Using POSIX mmap" << std::endl;
 
         int fd = open(filename, O_RDONLY);
@@ -72,13 +73,11 @@ public:
         if (buffer_ == MAP_FAILED) {
             throw std::runtime_error("mmap failed!");
         }
-
-        block_begin_index_ = 0;
     }
 
     void read_file_ifstream(const std::string & filename) {
         std::cout << "Using ifstream" << std::endl;
-        std::ifstream read_stream(filename, std::ios::binary | std::ios::ate);
+        std::ifstream read_stream(filename, std::ios::in | std::ios::binary | std::ios::ate);
 
         file_size_ = read_stream.tellg();
         std::cout << "File size: " << file_size_ << std::endl;
@@ -95,8 +94,31 @@ public:
         double file_size_compressed_MB = file_size_ / (1024 * 1024.0);
         double time = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count() / 1000000000.0;
         std::cout << "ifstream read file at " << file_size_compressed_MB / time << " compressed MB/s" << std::endl;
+    }
 
-        block_begin_index_ = 0;
+    void read_file_fread(const std::string & filename_str) {
+        std::cout << "Using fread" << std::endl;
+        const char * filename = filename_str.c_str();
+        FILE * infile = fopen(filename, "rb");
+        if (infile == nullptr) {
+            throw std::runtime_error("fopen error!");
+        }
+
+        fseek(infile, 0L, SEEK_END);
+        file_size_ = ftell(infile);
+        std::cout << "File size: " << file_size_ << std::endl;
+
+        fseek(infile, 0L, SEEK_SET);
+
+        buffer_ = new char[file_size_];
+
+        auto start = std::chrono::steady_clock::now();
+        fread(buffer_, sizeof(char), file_size_, infile);
+        fclose(infile);
+        auto stop = std::chrono::steady_clock::now();
+        double file_size_compressed_MB = file_size_ / (1024 * 1024.0);
+        double time = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count() / 1000000000.0;
+        std::cout << "fread read file at " << file_size_compressed_MB / time << " compressed MB/s" << std::endl;
     }
 
     std::pair<uint64_t, uint32_t> getNextBlock() {
@@ -125,12 +147,13 @@ private:
 
     boost::iostreams::mapped_file_source file;
 
+    std::string mode_;
+
     std::mutex next_block_mutex_;
     uint64_t block_begin_index_;
 
     uint64_t file_size_;
 
-    std::string mode_;
 };
 
 int main(int argc, char * argv[]) {
