@@ -25,19 +25,21 @@ public:
     BamReader(const std::string & filename, const std::string & mode): mode_(mode), block_begin_index_(0) {
         if (mode_ == "use_ifstream") {
             read_file_ifstream(filename);
-        } else if (mode_ == "use_boost_mmap") {
+        } else if (mode == "use_boost_mmap") {
             read_file_boost_mmap(filename);
         } else if (mode == "use_mmap") {
             read_file_mmap(filename);
         } else if (mode == "use_fread") {
             read_file_fread(filename);
+        } else if (mode == "use_mmap_into_buffer") {
+            read_mmap_into_buffer(filename);
         } else {
             throw std::runtime_error("Invalid reader type!");
         }
     }
 
     ~BamReader() {
-        if (mode_ == "use_ifstream" || mode_ == "use_fread") {
+        if (mode_ == "use_ifstream" || mode_ == "use_fread" || mode_ == "use_mmap_into_buffer") {
             delete(buffer_);
         } else if (mode_ == "use_mmap") {
             munmap(buffer_, file_size_);
@@ -55,6 +57,10 @@ public:
 
         file_size_ = file.size();
         buffer_ = (char *)file.data();
+
+        if (madvise(buffer_, file_size_, MADV_SEQUENTIAL) != 0) {
+            throw std::runtime_error("Failed to madvise!");
+        }
     }
 
     void read_file_mmap(const std::string & filename_str) {
@@ -73,6 +79,42 @@ public:
         if (buffer_ == MAP_FAILED) {
             throw std::runtime_error("mmap failed!");
         }
+
+        if (madvise(buffer_, file_size_, MADV_SEQUENTIAL) != 0) {
+            throw std::runtime_error("Failed to madvise!");
+        }
+    }
+
+    void read_mmap_into_buffer(const std::string & filename_str) {
+        const char * filename = filename_str.c_str();
+        std::cout << "Using POSIX mmap into buffer" << std::endl;
+
+        int fd = open(filename, O_RDONLY);
+        struct stat sb;
+        fstat(fd, &sb);
+
+        file_size_ = sb.st_size;
+        std::cout << "File size: " << file_size_ << std::endl;
+
+        char * mmap_buffer = (char *)mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+        close(fd);
+        if (mmap_buffer == MAP_FAILED) {
+            throw std::runtime_error("mmap failed!");
+        }
+
+        if (madvise(mmap_buffer, file_size_, MADV_SEQUENTIAL) != 0) {
+            throw std::runtime_error("Failed to madvise!");
+        }
+
+        buffer_ = new char[file_size_];
+
+        auto start = std::chrono::steady_clock::now();
+        std::memcpy(buffer_, mmap_buffer, file_size_);
+        munmap(mmap_buffer, file_size_);
+        auto stop = std::chrono::steady_clock::now();
+        double file_size_compressed_MB = file_size_ / (1024 * 1024.0);
+        double time = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count() / 1000000000.0;
+        std::cout << "mmap read file into buffer at " << file_size_compressed_MB / time << " compressed MB/s" << std::endl;
     }
 
     void read_file_ifstream(const std::string & filename) {
